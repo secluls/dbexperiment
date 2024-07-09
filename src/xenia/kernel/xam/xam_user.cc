@@ -21,10 +21,43 @@
 #include "xenia/xbox.h"
 
 DECLARE_int32(user_language);
+DECLARE_int32(user_country);
 
 namespace xe {
 namespace kernel {
 namespace xam {
+
+dword_result_t XamProfileOpen_entry(qword_t xuid, lpstring_t mount_name) {
+  std::string guest_name = mount_name;
+  bool result = kernel_state()->user_profile(xuid);
+
+  if (!result) {
+    return X_ERROR_FUNCTION_FAILED;
+  }
+  return X_ERROR_SUCCESS;
+}
+DECLARE_XAM_EXPORT1(XamProfileOpen, kUserProfiles, kStub);
+
+struct X_PROFILEENUMRESULT {
+  xe::be<uint64_t> xuid_offline;  // E0.....
+  X_XAMACCOUNTINFO account;
+  xe::be<uint32_t> device_id;
+};
+static_assert_size(X_PROFILEENUMRESULT, 0x188);
+
+dword_result_t XamProfileCreateEnumerator_entry(dword_t device_id,
+                                          lpdword_t handle_out) {
+  assert_not_null(handle_out);
+
+  auto e = new XStaticUntypedEnumerator(kernel_state(), 0,
+                                        sizeof(X_PROFILEENUMRESULT));
+
+  e->Initialize(0xFF, 0xFF, 0x23001, 0x23003, 0x28);
+
+  *handle_out = e->handle();
+  return X_ERROR_SUCCESS;
+}
+DECLARE_XAM_EXPORT1(XamProfileCreateEnumerator, kUserProfiles, kStub);
 
 X_HRESULT_result_t XamUserGetXUID_entry(dword_t user_index, dword_t type_mask,
                                         lpqword_t xuid_ptr) {
@@ -486,6 +519,46 @@ DECLARE_XAM_EXPORT1(XamUserContentRestrictionCheckAccess, kUserProfiles, kStub);
 dword_result_t XamUserIsOnlineEnabled_entry(dword_t user_index) { return 1; }
 DECLARE_XAM_EXPORT1(XamUserIsOnlineEnabled, kUserProfiles, kStub);
 
+dword_result_t XamUserLogon_entry(lpqword_t xuid, dword_t unk,
+                                  dword_t overlapped_ptr) {
+  uint64_t profile_xuid = *xuid;
+
+  auto run = [profile_xuid](uint32_t& extended_error,
+                            uint32_t& length) -> X_RESULT {
+    //kernel_state()->profile_manager()->Login(profile_xuid); // log in to profile and swap account data
+    extended_error = 0;
+    length = 0;
+    return X_ERROR_SUCCESS;
+  };
+
+  if (overlapped_ptr) {
+    kernel_state()->CompleteOverlappedDeferredEx(run, overlapped_ptr);
+    return X_ERROR_IO_PENDING;
+  } else {
+    uint32_t extended_error;
+    uint32_t item_count;
+    X_RESULT result = run(extended_error, item_count);
+  }
+  return X_ERROR_SUCCESS;
+}
+DECLARE_XAM_EXPORT1(XamUserLogon, kUserProfiles, kStub);
+
+dword_result_t XamUserGetIndexFromXUID_entry(qword_t xuid, dword_t r4,
+                                       lpdword_t user_index) {
+  *user_index = 0;
+
+  return X_ERROR_SUCCESS;
+}
+DECLARE_XAM_EXPORT1(XamUserGetIndexFromXUID, kUserProfiles, kStub);
+
+dword_result_t XamUserGetMembershipTierFromXUID_entry(dword_t xuid) {
+  if (!xuid) {
+    return X_ERROR_NO_SUCH_USER;
+  }
+  return 6 /* 6 appears to be Gold */;
+}
+DECLARE_XAM_EXPORT1(XamUserGetMembershipTierFromXUID, kUserProfiles, kStub);
+
 dword_result_t XamUserGetMembershipTier_entry(dword_t user_index) {
   if (user_index >= 4) {
     return X_ERROR_INVALID_PARAMETER;
@@ -498,6 +571,21 @@ dword_result_t XamUserGetMembershipTier_entry(dword_t user_index) {
 }
 DECLARE_XAM_EXPORT1(XamUserGetMembershipTier, kUserProfiles, kStub);
 
+dword_result_t XamUserGetOnlineCountryFromXUID_entry(dword_t xuid) {
+  return cvars::user_country;
+}
+DECLARE_XAM_EXPORT1(XamUserGetOnlineCountryFromXUID, kUserProfiles, kStub);
+
+dword_result_t XamUserGetOnlineLanguageFromXUID_entry(dword_t xuid) {
+  return cvars::user_language;
+}
+DECLARE_XAM_EXPORT1(XamUserGetOnlineLanguageFromXUID, kUserProfiles, kStub);
+
+// https://answers.microsoft.com/en-us/xbox/forum/all/what-does-the-tenure-mean/07793391-78af-4709-b54a-5adf4366be7e
+dword_result_t XamUserGetUserTenure_entry(){
+  return 0xC; /* Development for Xenia Started in 2013 (11 yrs)*/
+}
+DECLARE_XAM_EXPORT1(XamUserGetUserTenure, kUserProfiles, kStub);
 dword_result_t XamUserAreUsersFriends_entry(dword_t user_index, dword_t unk1,
                                             dword_t unk2, lpdword_t out_value,
                                             dword_t overlapped_ptr) {
@@ -544,7 +632,7 @@ DECLARE_XAM_EXPORT1(XamUserAreUsersFriends, kUserProfiles, kStub);
 
 dword_result_t XamShowSigninUI_entry(dword_t users_needed, dword_t unk_mask) {
   // XN_SYS_UI (on)
-  kernel_state()->BroadcastNotification(0x00000009, 1);
+  kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, 1);
   kernel_state()->UpdateUsedUserProfiles();
   // Mask values vary. Probably matching user types? Local/remote?
   // Games seem to sit and loop until we trigger this notification:
@@ -560,13 +648,21 @@ dword_result_t XamShowSigninUI_entry(dword_t users_needed, dword_t unk_mask) {
   }
 
   // XN_SYS_SIGNINCHANGED (players)
-  kernel_state()->BroadcastNotification(0xA, user_mask);
+  kernel_state()->BroadcastNotification(kXNotificationIDSystemSignInChanged, user_mask);
 
   // XN_SYS_UI (off)
-  kernel_state()->BroadcastNotification(0x00000009, 0);
+  kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, 0);
   return X_ERROR_SUCCESS;
 }
 DECLARE_XAM_EXPORT1(XamShowSigninUI, kUserProfiles, kStub);
+
+dword_result_t XamShowGamerCardUI_entry( dword_t user_index ){
+  kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, 1);
+  auto user_profile = kernel_state()->user_profile(user_index);
+
+  return X_ERROR_SUCCESS;
+}
+DECLARE_XAM_EXPORT1(XamShowGamerCardUI, kUserProfiles, kStub);
 
 dword_result_t XamUserCreateAchievementEnumerator_entry(
     dword_t title_id, dword_t user_index, dword_t xuid, dword_t flags,
@@ -693,6 +789,161 @@ dword_result_t XamSessionRefObjByHandle_entry(dword_t handle,
 }
 DECLARE_XAM_EXPORT1(XamSessionRefObjByHandle, kUserProfiles, kStub);
 
+dword_result_t XamUserCreateTitlesPlayedEnumerator_entry(
+    dword_t user_index, dword_t xuid, dword_t flags, dword_t offset,
+    dword_t games_count, lpdword_t buffer_size_ptr, lpdword_t handle_ptr) {
+  // + 128 bytes for the 64-char titlename
+  const uint32_t kEntrySize = sizeof(kernel::X_GPD_TITLEPLAYED) + 128;
+
+  auto user_profile = kernel_state()->user_profile(user_index);
+  if (!user_profile) {
+    return X_ERROR_INVALID_PARAMETER;  // TODO: proper error code!
+  }
+
+  if (buffer_size_ptr) {
+    *buffer_size_ptr = kEntrySize * games_count;
+  }
+
+  std::vector<kernel::TitlePlayed> titles;
+  //user_profile->GetDashboardGpd()->GetTitles(&titles);
+
+  // Sort titles by date played
+  std::sort(titles.begin(), titles.end(),
+            [](const kernel::TitlePlayed& first, const kernel::TitlePlayed& second)
+                -> bool { return first.last_played > second.last_played; });
+
+  auto e = new XStaticUntypedEnumerator(kernel_state(), games_count, kEntrySize);
+  const X_STATUS result = e->Initialize(user_index, 0xFB, 0xB0023, 0xB0024, 0);
+
+  *handle_ptr = e->handle();
+
+  for (auto title : titles) {
+    if (e->item_count() >= games_count) {
+      break;
+    }
+
+    // For some reason dashboard gpd stores info about itself
+    if (title.title_id == kDashboardID) continue;
+
+    // TODO: Look for better check to provide information about demo title
+    // or system title
+    if (!title.gamerscore_total || !title.achievements_possible) continue;
+
+    auto* details = (kernel::X_GPD_TITLEPLAYED*)e->AppendItem();
+    title.WriteGPD(details);
+  }
+
+  XELOGD("XamUserCreateTitlesPlayedEnumerator: added %d items to enumerator",
+         e->item_count());
+
+  return X_ERROR_SUCCESS;
+}
+DECLARE_XAM_EXPORT1(XamUserCreateTitlesPlayedEnumerator, kUserProfiles,
+                    kSketchy);
+
+dword_result_t XamReadTile_entry(dword_t tile_type, dword_t game_id, qword_t item_id,
+                           dword_t user_index, lpdword_t output_ptr,
+                           lpdword_t buffer_size_ptr, dword_t overlapped_ptr) {
+  // Wrap function in a lambda func so we can use return to exit out when
+  // needed, but still always be able to set the xoverlapped value
+  // this way we don't need a bunch of if/else nesting to accomplish the same
+  auto main_fn = [tile_type, game_id, item_id, user_index, output_ptr,
+                  buffer_size_ptr]() {
+    uint64_t image_id = item_id;
+
+    uint8_t* data = nullptr;
+    size_t data_len = 0;
+    std::unique_ptr<MappedMemory> mmap;
+
+    if (!output_ptr || !buffer_size_ptr) {
+      return X_ERROR_FILE_NOT_FOUND;
+    }
+
+    auto type = (XTileType)tile_type.value();
+    if (kTileFileNames.count(type)) {
+      // Profiles not supported anymore
+      // image_id = XUID of profile to retrieve from
+
+      auto user_profile = kernel_state()->user_profile(image_id);
+      if (!user_profile) {
+        return X_ERROR_FILE_NOT_FOUND;  // TODO: proper error code!
+      }
+
+      auto file_path = user_profile->path();
+      file_path += kTileFileNames.at(type);
+
+      mmap = MappedMemory::Open(file_path, MappedMemory::Mode::kRead);
+      if (!mmap) {
+        return X_ERROR_FILE_NOT_FOUND;
+      }
+      data = mmap->data();
+      data_len = mmap->size();
+    } else {
+      auto user_profile = kernel_state()->user_profile(user_index);
+      if (!user_profile) {
+        return X_ERROR_FILE_NOT_FOUND;  // TODO: proper error code!
+      }
+
+      // GPD Not supported anymore
+      //auto gpd = user_profile->GetTitleGpd(game_id.value());
+
+      //if (!gpd) {
+        //return X_ERROR_FILE_NOT_FOUND;
+      //}
+
+      //auto entry = gpd->GetEntry(
+          //static_cast<uint16_t>(util::XdbfSection::kImage), image_id);
+
+      //if (!entry) {
+        //return X_ERROR_FILE_NOT_FOUND;
+      //}
+
+      //data = entry->data.data();
+      //data_len = entry->data.size();
+
+      return X_ERROR_FILE_NOT_FOUND; //until gpd are made
+    }
+
+    if (!data || !data_len) {
+      return X_ERROR_FILE_NOT_FOUND;
+    }
+
+    auto passed_size = *buffer_size_ptr;
+    *buffer_size_ptr = (uint32_t)data_len;
+
+    auto ret_val = X_ERROR_INSUFFICIENT_BUFFER;
+
+    if (passed_size >= *buffer_size_ptr) {
+      memcpy_s(output_ptr, *buffer_size_ptr, data, data_len);
+      ret_val = X_ERROR_SUCCESS;
+    }
+
+    if (mmap) {
+      mmap->Close();
+    }
+
+    return ret_val;
+  };
+
+  auto retval = main_fn();
+
+  if (overlapped_ptr) {
+    kernel_state()->CompleteOverlappedImmediate(overlapped_ptr, retval);
+    return X_ERROR_IO_PENDING;
+  }
+  return retval;
+}
+DECLARE_XAM_EXPORT1(XamReadTile, kUserProfiles, kSketchy);
+
+dword_result_t XamReadTileEx_entry(dword_t tile_type, dword_t game_id,
+                             qword_t item_id, dword_t offset, dword_t unk1,
+                             dword_t unk2, lpdword_t output_ptr,
+                             lpdword_t buffer_size_ptr) {
+  return XamReadTile_entry(tile_type, game_id, item_id, offset, output_ptr,
+                     buffer_size_ptr, 0);
+}
+DECLARE_XAM_EXPORT1(XamReadTileEx, kUserProfiles, kSketchy);
+
 dword_result_t XamUserIsUnsafeProgrammingAllowed_entry(
     dword_t unk1, dword_t unk2, lpdword_t unk3, dword_t unk4, dword_t unk5,
     dword_t unk6) {
@@ -760,6 +1011,45 @@ dword_result_t XamUserCreateStatsEnumerator_entry(
   return X_ERROR_SUCCESS;
 }
 DECLARE_XAM_EXPORT1(XamUserCreateStatsEnumerator, kUserProfiles, kSketchy);
+
+dword_result_t XamProfileClose_entry(lpstring_t mount_name) {
+  std::string guest_name = mount_name;
+  bool result =
+      kernel_state()->file_system()->UnregisterDevice(guest_name + ':');
+
+  if (!result) {
+    return X_ERROR_FUNCTION_FAILED;
+  }
+  return X_ERROR_SUCCESS;
+}
+DECLARE_XAM_EXPORT1(XamProfileClose, kUserProfiles, kStub);
+
+#pragma pack(push, 1)
+struct X_USER_INFO {
+  xe::be<uint64_t> xuid;
+  char name[16];
+  xe::be<uint32_t> user_index;
+  xe::be<uint32_t> unk;
+  xe::be<uint32_t> title_id;
+  xe::be<uint32_t> unk2;
+  xe::be<uint32_t> unk3;
+};
+static_assert_size(X_USER_INFO, 44);
+
+typedef struct {
+  xe::be<uint32_t> user_count;
+  X_USER_INFO users_info[7];
+} X_USER_PARTY_LIST;
+static_assert_size(X_USER_PARTY_LIST, 4+sizeof(X_USER_INFO)*7);
+#pragma pack(pop)
+
+dword_result_t XamPartyGetUserListInternal_entry(
+    pointer_t<X_USER_PARTY_LIST> party_struct_ptr) {
+
+  party_struct_ptr->user_count = 0;
+  return X_ERROR_SUCCESS;
+}
+DECLARE_XAM_EXPORT1(XamPartyGetUserListInternal, kUserProfiles, kStub);
 
 }  // namespace xam
 }  // namespace kernel

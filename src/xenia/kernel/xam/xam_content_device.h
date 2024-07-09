@@ -16,9 +16,15 @@ namespace xe {
 namespace kernel {
 namespace xam {
 
+// https://github.com/jogolden/testdev/blob/master/xkelib/xam/xamXContent.h#L56
 enum class DeviceType : uint32_t {
+  NONE = 0,
   HDD = 1,
+  MU  = 2, // in the sdk
+  SYSTEMMU = 3,
   ODD = 4,
+  XFERCABLE = 8,
+  USBMASS  = 16,
 };
 
 enum class DummyDeviceId : uint32_t {

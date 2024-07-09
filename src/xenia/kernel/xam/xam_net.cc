@@ -169,6 +169,30 @@ struct XNetStartupParams {
 
 XNetStartupParams xnet_startup_params = {0};
 
+dword_result_t NetDll_XHttpStartup_entry(dword_t caller, dword_t reserved,
+                                         dword_t reserved_ptr) {
+  return TRUE;
+}
+DECLARE_XAM_EXPORT1(NetDll_XHttpStartup, kNetworking, kStub);
+
+dword_result_t NetDll_XHttpOpen_entry(dword_t unknown1)
+{
+  // TODO: implement, but fail for now
+  // WSAENOTSOCK
+  XThread::SetLastError(0x2736);
+  return NULL;
+}
+DECLARE_XAM_EXPORT1(NetDll_XHttpOpen, kNetworking, kStub);
+
+dword_result_t NetDll_XHttpConnect_entry(dword_t unknown1)
+{
+  // TODO: implement, but fail for now
+  // WSAENOTSOCK
+  XThread::SetLastError(0x2736);
+  return NULL;
+}
+DECLARE_XAM_EXPORT1(NetDll_XHttpConnect, kNetworking, kStub);
+
 dword_result_t NetDll_XNetStartup_entry(dword_t caller,
                                         pointer_t<XNetStartupParams> params) {
   if (params) {

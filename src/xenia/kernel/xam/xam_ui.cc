@@ -26,8 +26,6 @@ DEFINE_bool(storage_selection_dialog, false,
             "Show storage device selection dialog when the game requests it.",
             "UI");
 
-DECLARE_int32(license_mask);
-
 namespace xe {
 namespace kernel {
 namespace xam {
@@ -78,7 +76,7 @@ X_RESULT xeXamDispatchDialog(T* dialog,
                              uint32_t overlapped) {
   auto pre = []() {
     // Broadcast XN_SYS_UI = true
-    kernel_state()->BroadcastNotification(0x9, true);
+    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, true);
   };
   auto run = [dialog, close_callback]() -> X_RESULT {
     X_RESULT result;
@@ -102,7 +100,7 @@ X_RESULT xeXamDispatchDialog(T* dialog,
   auto post = []() {
     xe::threading::Sleep(std::chrono::milliseconds(100));
     // Broadcast XN_SYS_UI = false
-    kernel_state()->BroadcastNotification(0x9, false);
+    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, false);
   };
   if (!overlapped) {
     pre();
@@ -121,7 +119,7 @@ X_RESULT xeXamDispatchDialogEx(
     uint32_t overlapped) {
   auto pre = []() {
     // Broadcast XN_SYS_UI = true
-    kernel_state()->BroadcastNotification(0x9, true);
+    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, true);
   };
   auto run = [dialog, close_callback](uint32_t& extended_error,
                                       uint32_t& length) -> X_RESULT {
@@ -146,7 +144,7 @@ X_RESULT xeXamDispatchDialogEx(
   auto post = []() {
     xe::threading::Sleep(std::chrono::milliseconds(100));
     // Broadcast XN_SYS_UI = false
-    kernel_state()->BroadcastNotification(0x9, false);
+    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, false);
   };
   if (!overlapped) {
     pre();
@@ -165,12 +163,12 @@ X_RESULT xeXamDispatchHeadless(std::function<X_RESULT()> run_callback,
                                uint32_t overlapped) {
   auto pre = []() {
     // Broadcast XN_SYS_UI = true
-    kernel_state()->BroadcastNotification(0x9, true);
+    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, true);
   };
   auto post = []() {
     xe::threading::Sleep(std::chrono::milliseconds(100));
     // Broadcast XN_SYS_UI = false
-    kernel_state()->BroadcastNotification(0x9, false);
+    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, false);
   };
   if (!overlapped) {
     pre();
@@ -189,12 +187,12 @@ X_RESULT xeXamDispatchHeadlessEx(
     uint32_t overlapped) {
   auto pre = []() {
     // Broadcast XN_SYS_UI = true
-    kernel_state()->BroadcastNotification(0x9, true);
+    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, true);
   };
   auto post = []() {
     xe::threading::Sleep(std::chrono::milliseconds(100));
     // Broadcast XN_SYS_UI = false
-    kernel_state()->BroadcastNotification(0x9, false);
+    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, false);
   };
   if (!overlapped) {
     pre();
@@ -208,49 +206,6 @@ X_RESULT xeXamDispatchHeadlessEx(
                                                  post);
     return X_ERROR_IO_PENDING;
   }
-}
-
-template <typename T>
-X_RESULT xeXamDispatchDialogAsync(T* dialog,
-                                  std::function<void(T*)> close_callback) {
-  // Broadcast XN_SYS_UI = true
-  kernel_state()->BroadcastNotification(0x9, true);
-  ++xam_dialogs_shown_;
-
-  // Important to pass captured vars by value here since we return from this
-  // without waiting for the dialog to close so the original local vars will be
-  // destroyed.
-  // FIXME: Probably not the best idea to call Sleep in UI thread.
-  dialog->set_close_callback([dialog, close_callback]() {
-    close_callback(dialog);
-
-    --xam_dialogs_shown_;
-
-    xe::threading::Sleep(std::chrono::milliseconds(100));
-    // Broadcast XN_SYS_UI = false
-    kernel_state()->BroadcastNotification(0x9, false);
-  });
-
-  return X_ERROR_SUCCESS;
-}
-
-X_RESULT xeXamDispatchHeadlessAsync(std::function<void()> run_callback) {
-  // Broadcast XN_SYS_UI = true
-  kernel_state()->BroadcastNotification(0x9, true);
-  ++xam_dialogs_shown_;
-
-  auto display_window = kernel_state()->emulator()->display_window();
-  display_window->app_context().CallInUIThread([run_callback]() {
-    run_callback();
-
-    --xam_dialogs_shown_;
-
-    xe::threading::Sleep(std::chrono::milliseconds(100));
-    // Broadcast XN_SYS_UI = false
-    kernel_state()->BroadcastNotification(0x9, false);
-  });
-
-  return X_ERROR_SUCCESS;
 }
 
 dword_result_t XamIsUIActive_entry() { return xeXamIsUIActive(); }
@@ -575,22 +530,6 @@ dword_result_t XamShowDeviceSelectorUI_entry(
     dword_t user_index, dword_t content_type, dword_t content_flags,
     qword_t total_requested, lpdword_t device_id_ptr,
     pointer_t<XAM_OVERLAPPED> overlapped) {
-  if (!overlapped) {
-    return X_ERROR_INVALID_PARAMETER;
-  }
-
-  if ((user_index >= 4 && user_index != 0xFF) ||
-      (content_flags & 0x83F00008) != 0 || !device_id_ptr) {
-    XOverlappedSetExtendedError(overlapped, X_ERROR_INVALID_PARAMETER);
-    return X_ERROR_INVALID_PARAMETER;
-  }
-
-  if (user_index != 0xFF && !kernel_state()->IsUserSignedIn(user_index)) {
-    kernel_state()->CompleteOverlappedImmediate(overlapped,
-                                                X_ERROR_NO_SUCH_USER);
-    return X_ERROR_IO_PENDING;
-  }
-
   std::vector<const DummyDeviceInfo*> devices = ListStorageDevices();
 
   if (cvars::headless || !cvars::storage_selection_dialog) {
@@ -655,6 +594,67 @@ void XamShowDirtyDiscErrorUI_entry(dword_t user_index) {
 }
 DECLARE_XAM_EXPORT1(XamShowDirtyDiscErrorUI, kUI, kImplemented);
 
+dword_result_t XamShowCreateProfileUI_entry(dword_t user_index) {
+  // Broadcast XN_SYS_UI = true
+  kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, 1);
+
+  std::u16string out_text;
+
+  ++xam_dialogs_shown_;
+  std::string title = "Profile Creation";
+  std::string description = "Choose a gamertag";
+  std::string default_text = "";
+
+  const Emulator* emulator = kernel_state()->emulator();
+  ui::ImGuiDrawer* imgui_drawer = emulator->imgui_drawer();
+  xeXamDispatchDialog<KeyboardInputDialog>(
+      new KeyboardInputDialog(imgui_drawer, title,
+                              description, default_text, 15),
+      nullptr, 0);
+
+  --xam_dialogs_shown_;
+
+  // Broadcast XN_SYS_UI = false
+  kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, 0);
+
+  X_XAMACCOUNTINFO account;
+  memset(&account, 0, sizeof(X_XAMACCOUNTINFO));
+  memcpy(account.gamertag, out_text.c_str(),
+         std::min((uint32_t)out_text.size(), 15u) * sizeof(char16_t));
+
+  // TODO: the following does seem to trigger dash and make it try reloading the
+  // profile, but some reason it won't load properly until restart (no
+  // gamertag/gamerscore/games shown, etc)
+  // maybe need to set some notification for it or something?
+  //kernel_state()->profile_manager()->CreateProfile(&account);
+
+  return X_ERROR_SUCCESS;
+}
+DECLARE_XAM_EXPORT1(XamShowCreateProfileUI, kUI, kImplemented);
+
+dword_result_t XamShowSigninUIp_entry(dword_t unk, dword_t unk_mask) {
+  // Mask values vary. Probably matching user types? Local/remote?
+
+  // To fix game modes that display a 4 profile signin UI (even if playing
+  // alone):
+  // XN_SYS_SIGNINCHANGED
+  for (uint32_t i = 0; i < 4; i++) {
+    auto profile = kernel_state()->user_profile(i);
+    if (profile && !kernel_state()->IsUserSignedIn(i)) { // !profiles.empty()
+      // auto xuid = (*profile.cbegin()).second->xuid();
+      // kernel_state()->profile_manager()->Login(xuid);
+      // Games seem to sit and loop until we trigger this notification:
+    } else {
+      kernel_state()->BroadcastNotification(kXNotificationIDSystemSignInChanged, i);
+    }
+  }
+  // XN_SYS_UI (off)
+  kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, 0);
+  kernel_state()->BroadcastNotification(kXNotificationIDSystemSignInChanged, 1);
+  return X_ERROR_SUCCESS;
+}
+DECLARE_XAM_EXPORT1(XamShowSigninUIp, kUI, kStub)
+
 dword_result_t XamShowPartyUI_entry(unknown_t r3, unknown_t r4) {
   return X_ERROR_FUNCTION_FAILED;
 }
@@ -664,6 +664,11 @@ dword_result_t XamShowCommunitySessionsUI_entry(unknown_t r3, unknown_t r4) {
   return X_ERROR_FUNCTION_FAILED;
 }
 DECLARE_XAM_EXPORT1(XamShowCommunitySessionsUI, kNone, kStub);
+
+dword_result_t XamShowFriendsUI_entry(unknown_t r3, unknown_t r4) {
+  return X_ERROR_FUNCTION_FAILED;
+}
+DECLARE_XAM_EXPORT1(XamShowFriendsUI, kNone, kStub);
 
 // this is supposed to do a lot more, calls another function that triggers some
 // cbs
@@ -680,157 +685,6 @@ dword_result_t XamGetDashContext_entry(const ppc_context_t& ctx) {
 }
 
 DECLARE_XAM_EXPORT1(XamGetDashContext, kNone, kImplemented);
-
-dword_result_t XamShowMarketplaceUI_entry(dword_t user_index, dword_t ui_type,
-                                          qword_t offer_id,
-                                          dword_t content_types) {
-  // ui_type:
-  // 0 - view all content for the current title
-  // 1 - view content specified by offer id
-  // content_types:
-  // always -1? check more games
-  if (user_index >= 4) {
-    return X_ERROR_INVALID_PARAMETER;
-  }
-
-  if (!kernel_state()->IsUserSignedIn(user_index)) {
-    return X_ERROR_NO_SUCH_USER;
-  }
-
-  if (cvars::headless) {
-    return xeXamDispatchHeadlessAsync([]() {});
-  }
-
-  auto close = [ui_type](MessageBoxDialog* dialog) -> void {
-    if (ui_type == 1) {
-      uint32_t button = dialog->chosen_button();
-      if (button == 0) {
-        cvars::license_mask = 1;
-
-        // XN_LIVE_CONTENT_INSTALLED
-        kernel_state()->BroadcastNotification(0x2000007, 0);
-      }
-    }
-  };
-
-  std::string title = "Xbox Marketplace";
-  std::string desc = "";
-  cxxopts::OptionNames buttons;
-
-  switch (ui_type) {
-    case 0:
-      desc =
-          "Game requested to open marketplace page with all content for the "
-          "current title ID.";
-      break;
-    case 1:
-      desc = fmt::format(
-          "Game requested to open marketplace page for offer ID 0x{:016X}.",
-          offer_id);
-      break;
-    default:
-      desc = fmt::format("Unknown marketplace op {:d}", ui_type);
-      break;
-  }
-
-  desc +=
-      "\nNote that since Xenia cannot access Xbox Marketplace, any DLC must be "
-      "installed manually using File -> Install Content.";
-
-  switch (ui_type) {
-    case 0:
-    default:
-      buttons.push_back("OK");
-      break;
-    case 1:
-      desc +=
-          "\n\nTo start trial games in full mode, set license_mask to 1 in "
-          "Xenia config file.\n\nDo you wish to change license_mask to 1 for "
-          "*this session*?";
-      buttons.push_back("Yes");
-      buttons.push_back("No");
-      break;
-  }
-
-  const Emulator* emulator = kernel_state()->emulator();
-  ui::ImGuiDrawer* imgui_drawer = emulator->imgui_drawer();
-  return xeXamDispatchDialogAsync<MessageBoxDialog>(
-      new MessageBoxDialog(imgui_drawer, title, desc, buttons, 0), close);
-}
-DECLARE_XAM_EXPORT1(XamShowMarketplaceUI, kUI, kSketchy);
-
-dword_result_t XamShowMarketplaceDownloadItemsUI_entry(
-    dword_t user_index, dword_t ui_type, lpqword_t offers, dword_t num_offers,
-    lpdword_t hresult_ptr, pointer_t<XAM_OVERLAPPED> overlapped) {
-  // ui_type:
-  // 1000 - free
-  // 1001 - paid
-  if (user_index >= 4 || !offers || num_offers > 6) {
-    return X_ERROR_INVALID_PARAMETER;
-  }
-
-  if (!kernel_state()->IsUserSignedIn(user_index)) {
-    if (overlapped) {
-      kernel_state()->CompleteOverlappedImmediate(overlapped,
-                                                  X_ERROR_NO_SUCH_USER);
-      return X_ERROR_IO_PENDING;
-    }
-    return X_ERROR_NO_SUCH_USER;
-  }
-
-  if (cvars::headless) {
-    return xeXamDispatchHeadless(
-        [hresult_ptr]() -> X_RESULT {
-          if (hresult_ptr) {
-            *hresult_ptr = X_E_SUCCESS;
-          }
-          return X_ERROR_SUCCESS;
-        },
-        overlapped);
-  }
-
-  auto close = [hresult_ptr](MessageBoxDialog* dialog) -> X_RESULT {
-    if (hresult_ptr) {
-      // TODO
-      *hresult_ptr = X_E_SUCCESS;
-    }
-    return X_ERROR_SUCCESS;
-  };
-
-  std::string title = "Xbox Marketplace";
-  std::string desc = "";
-  cxxopts::OptionNames buttons = {"OK"};
-
-  switch (ui_type) {
-    case 1000:
-      desc =
-          "Game requested to open download page for the following free offer "
-          "IDs:";
-      break;
-    case 1001:
-      desc =
-          "Game requested to open download page for the following offer IDs:";
-      break;
-    default:
-      return X_ERROR_INVALID_PARAMETER;
-  }
-
-  for (uint32_t i = 0; i < num_offers; i++) {
-    desc += fmt::format("\n0x{:16X}", offers[i]);
-  }
-
-  desc +=
-      "\n\nNote that since Xenia cannot access Xbox Marketplace, any DLC "
-      "must "
-      "be installed manually using File -> Install Content.";
-
-  const Emulator* emulator = kernel_state()->emulator();
-  ui::ImGuiDrawer* imgui_drawer = emulator->imgui_drawer();
-  return xeXamDispatchDialog<MessageBoxDialog>(
-      new MessageBoxDialog(imgui_drawer, title, desc, buttons, 0), close,
-      overlapped);
-}
-DECLARE_XAM_EXPORT1(XamShowMarketplaceDownloadItemsUI, kUI, kSketchy);
 
 }  // namespace xam
 }  // namespace kernel

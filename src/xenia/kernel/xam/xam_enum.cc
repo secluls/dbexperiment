@@ -30,7 +30,7 @@ namespace xam {
 uint32_t xeXamEnumerate(uint32_t handle, uint32_t flags, lpvoid_t buffer_ptr,
                         uint32_t buffer_size, uint32_t* items_returned,
                         uint32_t overlapped_ptr) {
-  assert_true(flags == 0);
+  //assert_true(flags == 0);
 
   auto e = kernel_state()->object_table()->LookupObject<XEnumerator>(handle);
   if (!e) {
@@ -85,6 +85,16 @@ dword_result_t XamEnumerate_entry(dword_t handle, dword_t flags,
   return result;
 }
 DECLARE_XAM_EXPORT1(XamEnumerate, kNone, kImplemented);
+
+dword_result_t XamProfileEnumerate_entry(dword_t handle, dword_t flags,
+                                   lpvoid_t buffer,
+                                   pointer_t<XAM_OVERLAPPED> overlapped) {
+  uint32_t dummy;
+  auto result = xeXamEnumerate(handle, flags, buffer, 0,
+                               !overlapped ? &dummy : nullptr, overlapped);
+  return result;
+}
+DECLARE_XAM_EXPORT1(XamProfileEnumerate, kUserProfiles, kSketchy);
 
 dword_result_t XamCreateEnumeratorHandle_entry(
     dword_t user_index, dword_t app_id, dword_t open_message,

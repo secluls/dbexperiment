@@ -47,6 +47,9 @@ DEFINE_int32(avpack, 8,
              "Video");
 DECLARE_int32(user_country);
 DECLARE_int32(user_language);
+DECLARE_uint32(console_region);
+DECLARE_uint32(audio_flag);
+DECLARE_bool(xconfig_initial_setup);
 
 namespace xe {
 namespace kernel {
@@ -230,27 +233,35 @@ dword_result_t XGetAVPack_entry() {
 DECLARE_XAM_EXPORT1(XGetAVPack, kNone, kStub);
 
 uint32_t xeXGetGameRegion() {
-  static uint32_t const table[] = {
-      0xFFFFu, 0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x02FEu, 0x0201u, 0x03FFu,
-      0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x02FEu, 0x03FFu,
-      0x00FFu, 0xFFFFu, 0x02FEu, 0x03FFu, 0x0102u, 0x03FFu, 0x03FFu, 0x02FEu,
-      0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu, 0x03FFu, 0x02FEu, 0x03FFu, 0x02FEu,
-      0x02FEu, 0x02FEu, 0x02FEu, 0x02FEu, 0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu,
-      0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu,
-      0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x03FFu, 0x0101u, 0x03FFu, 0x03FFu,
-      0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x02FEu, 0x02FEu, 0x02FEu, 0x02FEu,
-      0x03FFu, 0x03FFu, 0x02FEu, 0x02FEu, 0x03FFu, 0x0102u, 0x03FFu, 0x00FFu,
-      0x03FFu, 0x03FFu, 0x02FEu, 0x02FEu, 0x0201u, 0x03FFu, 0x03FFu, 0x03FFu,
-      0x03FFu, 0x03FFu, 0x02FEu, 0x03FFu, 0x02FEu, 0x03FFu, 0x03FFu, 0x02FEu,
-      0x02FEu, 0x03FFu, 0x02FEu, 0x03FFu, 0x02FEu, 0x02FEu, 0xFFFFu, 0x03FFu,
-      0x03FFu, 0x03FFu, 0x03FFu, 0x02FEu, 0x03FFu, 0x03FFu, 0x02FEu, 0x00FFu,
-      0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu, 0x03FFu};
-  auto country = static_cast<uint8_t>(cvars::user_country);
-  return country < xe::countof(table) ? table[country] : 0xFFFFu;
+  switch (cvars::console_region) {
+    case 2047:
+      return 0x07FF; // Devkit
+      break;
+    case 255:
+      return 0x00FF; // NTSC-U
+      break;
+    case 511:
+      return 0x01FF; // NTSC-J
+      break;
+    case 257: // NTSC-J (Japan)
+      return 0x0101;
+      break;
+    case 258: // NTSC-J (China)
+      return 0x0102;
+      break;
+    case 767: // PAL
+      return 0x02FF;
+      break;
+    case 513: // PAL (Australia)
+      return 0x0201;
+      break;
+    default:
+      return 0xFFFF; // Region Free
+  }
 }
 
 dword_result_t XGetGameRegion_entry() { return xeXGetGameRegion(); }
-DECLARE_XAM_EXPORT1(XGetGameRegion, kNone, kStub);
+DECLARE_XAM_EXPORT1(XGetGameRegion, kNone, kSketchy);
 
 dword_result_t XGetLanguage_entry() {
   auto desired_language = static_cast<XLanguage>(cvars::user_language);
@@ -268,6 +279,23 @@ dword_result_t XGetLanguage_entry() {
   return uint32_t(desired_language);
 }
 DECLARE_XAM_EXPORT1(XGetLanguage, kNone, kImplemented);
+
+dword_result_t XamGetLanguage_entry()  {
+  auto desired_language = static_cast<XLanguage>(cvars::user_language);
+
+  // Switch the language based on game region.
+  // TODO(benvanik): pull from xex header.
+  /* uint32_t game_region = XEX_REGION_NTSCU;
+  if (game_region & XEX_REGION_NTSCU) {
+    desired_language = XLanguage::kEnglish;
+  } else if (game_region & XEX_REGION_NTSCJ) {
+    desired_language = XLanguage::kJapanese;
+  }*/
+  // Add more overrides?
+
+  return uint32_t(desired_language);
+}
+DECLARE_XAM_EXPORT1(XamGetLanguage, kNone, kImplemented);
 
 dword_result_t XamGetCurrentTitleId_entry() {
   return kernel_state()->emulator()->title_id();
@@ -643,7 +671,7 @@ dword_result_t lstrlenW_entry(lpu16string_t string) {
 }
 DECLARE_XAM_EXPORT1(lstrlenW, kNone, kImplemented);
 
-dword_result_t XGetAudioFlags_entry() { return 65537; }
+dword_result_t XGetAudioFlags_entry() { return cvars::audio_flag; }
 DECLARE_XAM_EXPORT1(XGetAudioFlags, kNone, kStub);
 
 /*
@@ -692,6 +720,111 @@ dword_result_t RtlRandom_entry(lpdword_t seed_out) {
 }
 
 DECLARE_XAM_EXPORT1(RtlRandom, kNone, kImplemented);
+
+dword_result_t XamLoaderGetDvdTrayState_entry() {
+  // DVD_CLOSED     0
+  // DVD_CLOSING 	1
+  // DVD_OPEN   	2
+  // DVD_OPENING   	3
+  // DVD_READING    4
+  return 0;
+}
+DECLARE_XAM_EXPORT1(XamLoaderGetDvdTrayState, kNone, kStub);
+
+//https://github.com/jogolden/testdev/blob/master/xkelib/xam/_xamext.h#L361
+X_HRESULT_result_t XamLoaderGetMediaInfo_entry(lpdword_t media_type, lpdword_t title_id) {
+  // 0 - No Disc
+  // 1 - 360 Xbox Game Disc
+  // 2 - OG Xbox Game Disc
+  // 3 - HD DVD
+  // 4 - Audio DVD
+  // 5 - DVD
+  // 6 - CD Video
+  // 7 - CD Audio
+  // 8 - CD Data
+  // 9 - GAME MOVIE HYBRID
+  // 10 - DVD?
+  xe::store_and_swap<uint32_t>(media_type, 0);
+  return X_E_SUCCESS;
+}
+DECLARE_XAM_EXPORT1(XamLoaderGetMediaInfo, kMisc, kStub);
+
+struct _FanOverride{ // used by _XCONFIG_STATIC_SETTINGS // 01111111 <- normally disabled as 0x7F
+	BYTE Enable : 1; // says 7 is bit 0
+	BYTE Speed : 7; // says 0 bit 7
+};
+// https://github.com/jogolden/testdev/blob/master/xkelib/xam/_xamext.h#L428
+void XamLoaderSetSpindleSpeed_entry(int_t Speed) {
+  //xe::store_and_swap<uint8_t>(Speed, 1);
+}
+DECLARE_XAM_EXPORT1(XamLoaderSetSpindleSpeed, kMisc, kStub);
+
+dword_result_t XamDoesOmniNeedConfiguration_entry() {
+  return 0;
+}
+DECLARE_XAM_EXPORT1(XamDoesOmniNeedConfiguration, kMisc, kStub);
+
+dword_result_t XamFirstRunExperienceShouldRun_entry() {
+  return cvars::xconfig_initial_setup;
+}
+DECLARE_XAM_EXPORT1(XamFirstRunExperienceShouldRun, kMisc, kStub);
+
+dword_result_t XamIsSystemTitleId_entry(dword_t title_id) {
+  if (title_id == 0) {
+    return true;
+  }
+
+  if ((title_id & 0xFF000000) == 0x58000000u) {
+    return (title_id & 0xFF0000) != 0x410000;  // if 'X' but not 'XA' (XBLA)
+  }
+
+  return (title_id >> 16) == 0xFFFE;  // FFFExxxx are always system apps
+}
+DECLARE_XAM_EXPORT1(XamIsSystemTitleId, kNone, kImplemented);
+
+dword_result_t XamIsXbox1TitleId_entry(dword_t title_id) {
+  if (title_id == 0xFFFE0000) {
+    return true;  // Xbox OG dashboard ID?
+  }
+
+  if (title_id == 0 || (title_id & 0xFF000000) == 0xFF000000) {
+    return false;  // X360 system apps
+  }
+
+  return (title_id & 0x7FFF) < 0x7D0;  // lower 15 bits smaller than 2000
+}
+DECLARE_XAM_EXPORT1(XamIsXbox1TitleId, kNone, kImplemented);
+
+dword_result_t XamIsSystemExperienceTitleId_entry(dword_t title_id) {
+  if ((title_id >> 16) == 0x584A) {  // 'XJ'
+    return true;
+  }
+  if ((title_id >> 16) == 0x5848) {  // 'XH'
+    return true;
+  }
+  return title_id == 0x584E07D2 || title_id == 0x584E07D1;  // XN-2002 / XN-2001
+}
+DECLARE_XAM_EXPORT1(XamIsSystemExperienceTitleId, kNone, kImplemented);
+
+dword_result_t XamIsChildAccountSignedIn_entry() { return 0; }
+DECLARE_XAM_EXPORT1(XamIsChildAccountSignedIn, kMisc, kStub);
+
+dword_result_t XamIsIptvEnabled_entry(){
+  return 1;
+}
+DECLARE_XAM_EXPORT1(XamIsIptvEnabled, kNone, kStub);
+
+dword_result_t XamGetStagingMode_entry(){
+  return 0;
+}
+DECLARE_XAM_EXPORT1(XamGetStagingMode, kMisc, kStub);
+
+dword_result_t XamGetDefaultSystemImage_entry(lpvoid_t image_source, lpdword_t image_len){ // Gets "Defaultsystemimage.png"
+  //OUT PVOID* Image Source,
+  //OUT PDWORD ImageLen
+  return 0;
+}
+DECLARE_XAM_EXPORT1(XamGetDefaultSystemImage, kMisc, kStub)
 
 }  // namespace xam
 }  // namespace kernel

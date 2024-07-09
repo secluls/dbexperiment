@@ -19,6 +19,14 @@ namespace xe {
 namespace kernel {
 namespace xam {
 
+std::wstring UserProfile::path() const {
+  if (!profile_path_.empty()) {
+    return profile_path_;
+  }
+
+  return base_path_;
+}
+
 UserProfile::UserProfile(uint8_t index) {
   // 58410A1F checks the user XUID against a mask of 0x00C0000000000000 (3<<54),
   // if non-zero, it prevents the user from playing the game.
@@ -79,19 +87,27 @@ UserProfile::UserProfile(uint8_t index) {
   AddSetting(std::make_unique<UserSetting>(0x10040039, 0));
 
   // XPROFILE_GAMERCARD_MOTTO
-  AddSetting(std::make_unique<UserSetting>(0x402C0011, u""));
+  AddSetting(std::make_unique<UserSetting>(0x402C0011, u"Bork"));
   // XPROFILE_GAMERCARD_PICTURE_KEY
   AddSetting(
       std::make_unique<UserSetting>(0x4064000F, u"gamercard_picture_key"));
   // XPROFILE_GAMERCARD_REP
   AddSetting(std::make_unique<UserSetting>(0x5004000B, 0.0f));
-
+  // XPROFILE_AVATAR_INFO
+  AddSetting(std::make_unique<UserSetting>(0x63E80044, 0));
   // XPROFILE_TITLE_SPECIFIC1
   AddSetting(std::make_unique<UserSetting>(0x63E83FFF, std::vector<uint8_t>()));
   // XPROFILE_TITLE_SPECIFIC2
   AddSetting(std::make_unique<UserSetting>(0x63E83FFE, std::vector<uint8_t>()));
   // XPROFILE_TITLE_SPECIFIC3
   AddSetting(std::make_unique<UserSetting>(0x63E83FFD, std::vector<uint8_t>()));
+
+  // XPROFILE_LAST_LIVE_SIGNIN 
+  AddSetting(std::make_unique<UserSetting>(0x7008004F, 0));
+  // XPROFILE_UNK_61180050
+  AddSetting(std::make_unique<UserSetting>(0x61180050, 0));
+  // XPROFILE_TENURE_LEVEL
+  AddSetting(std::make_unique<UserSetting>(0x10040047, 0xC));
 }
 
 void UserProfile::AddSetting(std::unique_ptr<UserSetting> setting) {
