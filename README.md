@@ -16,6 +16,17 @@ We've got jobs/lives/etc, so don't expect instant answers.
 
 Discussing illegal activities will get you banned.
 
+## dbexpirement
+
+dbexperiment is a fork of Xenia Canary that aims to optimize dashboard use as much as possible.
+
+Notes:
+Dashboards' features and functionality are not guaranteed, so do not expect anything to work as expected, since this is for cosmetic purposes only.
+This build is strictly made with dashboard support in mind, so game compatibility is gonna vary, and some might even break.
+
+Credits to @The-Little-Wolf for the code provided in this build.
+[Compatibility](https://docs.google.com/spreadsheets/d/1R4DbWGdugFojU-aP-nKfDTd6XgdvjQh16cNyJ-0UeEA/edit?usp=drivesdk)
+
 ## Status
 
 Buildbot | Status | Releases
