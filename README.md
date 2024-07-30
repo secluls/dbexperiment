@@ -16,7 +16,7 @@ We've got jobs/lives/etc, so don't expect instant answers.
 
 Discussing illegal activities will get you banned.
 
-## dbexpirement
+## dbexperiment
 
 dbexperiment is a fork of Xenia Canary that aims to optimize dashboard use as much as possible.
 
