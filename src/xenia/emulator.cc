@@ -408,10 +408,20 @@ X_STATUS Emulator::MountPath(const std::filesystem::path& path,
   file_system_->UnregisterSymbolicLink(kDefaultPartitionSymbolicLink);
   file_system_->UnregisterSymbolicLink(kDefaultGameSymbolicLink);
   file_system_->UnregisterSymbolicLink("plugins:");
+  file_system_->UnregisterSymbolicLink("media:");  // Dashboard needs this
+  file_system_->UnregisterSymbolicLink("font:");  // avatar editor requires this
+  file_system_->UnregisterSymbolicLink(
+      "DASHUSER:");  // Kinect Dash requires this
 
   // Create symlinks to the device.
   file_system_->RegisterSymbolicLink(kDefaultGameSymbolicLink, mount_path);
   file_system_->RegisterSymbolicLink(kDefaultPartitionSymbolicLink, mount_path);
+  file_system_->RegisterSymbolicLink("media:",
+                                     mount_path);  // Dashboard needs this
+  file_system_->RegisterSymbolicLink(
+      "font:", mount_path);  // avatar editor requires this
+  file_system_->RegisterSymbolicLink("DASHUSER:",
+                                     mount_path);  // Kinect Dash requires this
 
   return X_STATUS_SUCCESS;
 }
