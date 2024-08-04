@@ -76,7 +76,7 @@ X_RESULT xeXamDispatchDialog(T* dialog,
                              uint32_t overlapped) {
   auto pre = []() {
     // Broadcast XN_SYS_UI = true
-    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, true);
+    kernel_state()->BroadcastNotification(0x9, true);
   };
   auto run = [dialog, close_callback]() -> X_RESULT {
     X_RESULT result;
@@ -100,7 +100,7 @@ X_RESULT xeXamDispatchDialog(T* dialog,
   auto post = []() {
     xe::threading::Sleep(std::chrono::milliseconds(100));
     // Broadcast XN_SYS_UI = false
-    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, false);
+    kernel_state()->BroadcastNotification(0x9, false);
   };
   if (!overlapped) {
     pre();
@@ -119,7 +119,7 @@ X_RESULT xeXamDispatchDialogEx(
     uint32_t overlapped) {
   auto pre = []() {
     // Broadcast XN_SYS_UI = true
-    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, true);
+    kernel_state()->BroadcastNotification(0x9, true);
   };
   auto run = [dialog, close_callback](uint32_t& extended_error,
                                       uint32_t& length) -> X_RESULT {
@@ -144,7 +144,7 @@ X_RESULT xeXamDispatchDialogEx(
   auto post = []() {
     xe::threading::Sleep(std::chrono::milliseconds(100));
     // Broadcast XN_SYS_UI = false
-    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, false);
+    kernel_state()->BroadcastNotification(0x9, false);
   };
   if (!overlapped) {
     pre();
@@ -163,12 +163,12 @@ X_RESULT xeXamDispatchHeadless(std::function<X_RESULT()> run_callback,
                                uint32_t overlapped) {
   auto pre = []() {
     // Broadcast XN_SYS_UI = true
-    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, true);
+    kernel_state()->BroadcastNotification(0x9, true);
   };
   auto post = []() {
     xe::threading::Sleep(std::chrono::milliseconds(100));
     // Broadcast XN_SYS_UI = false
-    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, false);
+    kernel_state()->BroadcastNotification(0x9, false);
   };
   if (!overlapped) {
     pre();
@@ -187,12 +187,12 @@ X_RESULT xeXamDispatchHeadlessEx(
     uint32_t overlapped) {
   auto pre = []() {
     // Broadcast XN_SYS_UI = true
-    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, true);
+    kernel_state()->BroadcastNotification(0x9, true);
   };
   auto post = []() {
     xe::threading::Sleep(std::chrono::milliseconds(100));
     // Broadcast XN_SYS_UI = false
-    kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, false);
+    kernel_state()->BroadcastNotification(0x9, false);
   };
   if (!overlapped) {
     pre();
@@ -594,67 +594,6 @@ void XamShowDirtyDiscErrorUI_entry(dword_t user_index) {
 }
 DECLARE_XAM_EXPORT1(XamShowDirtyDiscErrorUI, kUI, kImplemented);
 
-dword_result_t XamShowCreateProfileUI_entry(dword_t user_index) {
-  // Broadcast XN_SYS_UI = true
-  kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, 1);
-
-  std::u16string out_text;
-
-  ++xam_dialogs_shown_;
-  std::string title = "Profile Creation";
-  std::string description = "Choose a gamertag";
-  std::string default_text = "";
-
-  const Emulator* emulator = kernel_state()->emulator();
-  ui::ImGuiDrawer* imgui_drawer = emulator->imgui_drawer();
-  xeXamDispatchDialog<KeyboardInputDialog>(
-      new KeyboardInputDialog(imgui_drawer, title,
-                              description, default_text, 15),
-      nullptr, 0);
-
-  --xam_dialogs_shown_;
-
-  // Broadcast XN_SYS_UI = false
-  kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, 0);
-
-  X_XAMACCOUNTINFO account;
-  memset(&account, 0, sizeof(X_XAMACCOUNTINFO));
-  memcpy(account.gamertag, out_text.c_str(),
-         std::min((uint32_t)out_text.size(), 15u) * sizeof(char16_t));
-
-  // TODO: the following does seem to trigger dash and make it try reloading the
-  // profile, but some reason it won't load properly until restart (no
-  // gamertag/gamerscore/games shown, etc)
-  // maybe need to set some notification for it or something?
-  //kernel_state()->profile_manager()->CreateProfile(&account);
-
-  return X_ERROR_SUCCESS;
-}
-DECLARE_XAM_EXPORT1(XamShowCreateProfileUI, kUI, kImplemented);
-
-dword_result_t XamShowSigninUIp_entry(dword_t unk, dword_t unk_mask) {
-  // Mask values vary. Probably matching user types? Local/remote?
-
-  // To fix game modes that display a 4 profile signin UI (even if playing
-  // alone):
-  // XN_SYS_SIGNINCHANGED
-  for (uint32_t i = 0; i < 4; i++) {
-    auto profile = kernel_state()->user_profile(i);
-    if (profile && !kernel_state()->IsUserSignedIn(i)) { // !profiles.empty()
-      // auto xuid = (*profile.cbegin()).second->xuid();
-      // kernel_state()->profile_manager()->Login(xuid);
-      // Games seem to sit and loop until we trigger this notification:
-    } else {
-      kernel_state()->BroadcastNotification(kXNotificationIDSystemSignInChanged, i);
-    }
-  }
-  // XN_SYS_UI (off)
-  kernel_state()->BroadcastNotification(kXNotificationIDSystemUI, 0);
-  kernel_state()->BroadcastNotification(kXNotificationIDSystemSignInChanged, 1);
-  return X_ERROR_SUCCESS;
-}
-DECLARE_XAM_EXPORT1(XamShowSigninUIp, kUI, kStub)
-
 dword_result_t XamShowPartyUI_entry(unknown_t r3, unknown_t r4) {
   return X_ERROR_FUNCTION_FAILED;
 }
@@ -664,11 +603,6 @@ dword_result_t XamShowCommunitySessionsUI_entry(unknown_t r3, unknown_t r4) {
   return X_ERROR_FUNCTION_FAILED;
 }
 DECLARE_XAM_EXPORT1(XamShowCommunitySessionsUI, kNone, kStub);
-
-dword_result_t XamShowFriendsUI_entry(unknown_t r3, unknown_t r4) {
-  return X_ERROR_FUNCTION_FAILED;
-}
-DECLARE_XAM_EXPORT1(XamShowFriendsUI, kNone, kStub);
 
 // this is supposed to do a lot more, calls another function that triggers some
 // cbs
